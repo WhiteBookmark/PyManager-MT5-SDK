@@ -56,14 +56,16 @@ def main() -> None:
     print("Attempting connection to MT5 trade server...", flush=True)
 
     manager = None
+    is_connected = False
     try:
         manager = MT5Manager.ManagerAPI()
-        
-        # In MT5Manager, Connect takes 5 arguments: (server, login, password, pump_mode, timeout)
-        # pump_mode=0 connects without running a background pump, or use manager.EnPumpModes flags
-        retcode = manager.Connect(server_endpoint, login, password, pump_mode, timeout)
 
-        if retcode == MT5Manager.EnMTAPIRetcode.MT_RET_OK or retcode is True:
+        # In mt5manager (Python wrapper), Connect() returns a bool (True on success, False on failure).
+        # Never compare `connected == EnMTAPIRetcode.MT_RET_OK` because in Python `False == 0` is True.
+        connected = manager.Connect(server_endpoint, login, password, pump_mode, timeout)
+        is_connected = connected is True
+
+        if is_connected:
             print("[SUCCESS] Connected to MetaTrader 5 Trade Server successfully!")
             print(f"Server Time (UNIX) : {manager.TimeServer()}")
             try:
@@ -75,10 +77,9 @@ def main() -> None:
                     server_name = manager.NetworkServer()
                     if server_name:
                         print(f"Network Server     : {server_name}")
-                print(f"Ping Latency       : {manager.Ping()} ms")
             except Exception as e:
                 print(f"Metrics note       : {e}")
-            
+
             # If a group was specified, verify group configuration
             if group:
                 try:
@@ -98,24 +99,33 @@ def main() -> None:
                     print(f"Group verification note: {grp_err}")
         else:
             err_num, err_enum, err_desc = MT5Manager.LastError()
-            print(f"[FAILED] Connection unsuccessful.")
-            print(f"Return Code : {retcode} ({retcode.name if hasattr(retcode, 'name') else retcode})")
+            err_name = err_enum.name if hasattr(err_enum, "name") else str(err_enum)
+            print("[FAILED] Connection unsuccessful.")
+            print(f"Return Value: {connected}")
+            print(f"Return Code : {int(err_enum) if isinstance(err_enum, int) else err_enum} ({err_name})")
             print(f"Error Code  : {err_num}")
             print(f"Error Detail: {err_desc}")
             print("-" * 60)
-            
-            # Provide actionable diagnostic hints based on return code
-            if retcode == MT5Manager.EnMTAPIRetcode.MT_RET_AUTH_FAILED:
-                print("Diagnostic Note: Authorization failed.")
-                print("1. Check if the login/password is correct in .env.")
-                print("2. Ensure this login is a registered *Manager* account with Manager API permissions (not a regular client/trader demo account).")
+
+            # Provide actionable diagnostic hints based on LastError() return code name
+            if err_name in (
+                "MT_RET_AUTH_FAILED",
+                "MT_RET_AUTH_ACCOUNT_INVALID",
+                "MT_RET_AUTH_MANAGER_TYPE",
+                "MT_RET_AUTH_INVALID",
+                "MT_RET_AUTH_ACCOUNT_DISABLED",
+            ):
+                print("Diagnostic Note: Authorization failed or account is not a valid Manager login.")
+                print("1. Check if MT5_LOGIN and MT5_PASSWORD are correct in .env.")
+                print("2. Ensure MT5_LOGIN is a registered *Manager* account with Manager API permissions (regular trader demo accounts cannot connect to MT5Manager).")
                 print("3. Check if your current IP address (or ngrok egress server IP) is whitelisted in MT5 Administrator under Manager settings.")
-            elif retcode == MT5Manager.EnMTAPIRetcode.MT_RET_ERR_TIMEOUT:
+            elif err_name == "MT_RET_ERR_TIMEOUT":
                 print("Diagnostic Note: Connection timed out.")
                 print(f"1. Verify if the target endpoint '{server_endpoint}' is reachable.")
                 print(f"2. If connecting via ngrok, ensure your manager has started the TCP tunnel pointing to the MT5 server (e.g., ngrok tcp 443).")
                 print(f"3. Ensure firewalls or local security policies allow outbound TCP traffic to port {port}.")
                 print(f"4. If network latency is high, consider increasing MT5_TIMEOUT_MS in .env (current: {timeout} ms).")
+            sys.exit(1)
 
     except Exception as exc:
         print(f"[FATAL ERROR] An unexpected exception occurred: {exc}", file=sys.stderr)
@@ -123,11 +133,10 @@ def main() -> None:
         traceback.print_exc()
         sys.exit(1)
     finally:
-        if manager is not None:
+        if manager is not None and is_connected:
             try:
-                if manager.IsConnected():
-                    print("Disconnecting session cleanly...")
-                    manager.Disconnect()
+                print("Disconnecting session cleanly...")
+                manager.Disconnect()
             except Exception:
                 pass
 

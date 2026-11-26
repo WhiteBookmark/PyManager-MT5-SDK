@@ -66,17 +66,15 @@ Validates licensing entitlements for an `AdminAPI` session against the trade ser
 The `ManagerAPI` class is the primary interface for dealing operations, client management, position monitoring, and market data queries.
 
 ### 4.1 Connection & Server Lifecycle
-- `Connect(server: str, login: int, password: str, pump_mode: int, timeout: int) -> EnMTAPIRetcode`: Establishes an encrypted session to the MT5 trade server.
-  - `pump_mode`: `0` connects without a background memory pump (recommended for direct RPC queries and scripts). Pass bitmask flags from `manager.EnPumpModes` (such as `PUMP_MODE_GROUPS`, `PUMP_MODE_USERS`, `PUMP_MODE_ORDERS`) to maintain local in-memory caches needed for `*Get()` methods.
+- `Connect(server: str, login: int, password: str, pump_mode: int, timeout: int) -> bool`: Establishes an encrypted session to the MT5 trade server. Returns `True` on success or `False` on failure (always check `if connected is True:` — never compare with `MT_RET_OK` (`0`), because in Python `False == 0` is `True`). Call `MT5Manager.LastError()` on failure.
+  - `pump_mode`: `0` connects without a background memory pump (recommended for direct RPC queries and scripts). Pass bitmask flags from `manager.EnPumpModes` (such as `PUMP_MODE_GROUPS`, `PUMP_MODE_USERS`, `PUMP_MODE_ORDERS`, `PUMP_MODE_POSITIONS`) to maintain local in-memory caches and receive real-time sink callbacks.
 - `Disconnect()`: Gracefully terminates the session.
-- `IsConnected() -> bool`: Returns `True` if the socket connection is active.
 - `TimeServer() -> int`: Returns current UNIX server time.
 - `TimeGet() -> int`: Returns synchronized local time.
 - `TimeSubscribe(sink)` / `TimeUnsubscribe(sink)`: Subscribes to time heartbeat events.
 - `NetworkAddress() -> str`: Remote host IP or domain.
 - `NetworkServer() -> str`: Server descriptive name.
 - `NetworkBytesRead() -> int` / `NetworkBytesSent() -> int`: Network I/O metrics.
-- `Ping() -> int`: Measures server round-trip latency.
 
 ### 4.2 User & Account Management
 - `UserAdd(user: MTUser, master: str, investor: str) -> EnMTAPIRetcode`: Creates a new trading account with credentials.
@@ -243,7 +241,7 @@ TIMEOUT_MS = 30000
 PUMP_MODE = 0  # 0 for lightweight direct queries, or manager.EnPumpModes flags
 
 res = manager.Connect(SERVER_ADDRESS, MANAGER_LOGIN, MANAGER_PASSWORD, PUMP_MODE, TIMEOUT_MS)
-if res != MT5Manager.EnMTAPIRetcode.MT_RET_OK:
+if res is not True:
     err_code, ret, desc = MT5Manager.LastError()
     print(f"Connection failed: {desc} (code {err_code}, ret {ret})")
     exit(1)
